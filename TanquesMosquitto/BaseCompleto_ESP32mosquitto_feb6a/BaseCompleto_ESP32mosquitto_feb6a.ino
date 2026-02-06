@@ -1,123 +1,183 @@
-#include <LedControl.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <ArduinoOTA.h>
 #include <HardwareSerial.h>
+#include <LedControl.h>
 
-// ================= DISPLAY =================
-#define DIN 23
-#define CLK 18
-#define CS  5
-LedControl lc = LedControl(DIN, CLK, CS, 1);
+/* ================= CONFIG ================= */
 
-// ================= BOTONES =================
-#define BTN1 32
-#define BTN2 33
-#define BTN3 34
+const char* ssid = "PEDRO CAMPOS"
+const char* password = "TONINOCAMPOS29";
 
-// ================= SENSORES =================
-HardwareSerial jsn(2);
-#define JSN_RX 16
-#define JSN_TX 17
+const char* mqtt_server = "192.168.0.10";
+const char* mqtt_user = "esp32";
+const char* mqtt_pass = "tonino";
 
-#define JSN1_EN 25
-#define JSN2_EN 26
-#define JSN3_EN 27
+/* ================= OBJETOS ================= */
 
-// ================= VARIABLES =================
-uint16_t distancia[3] = {0, 0, 0};
-uint16_t litros[3]    = {0, 0, 0};
-uint8_t tanqueSeleccionado = 0; // 0,1,2
+WiFiClient espClient;
+PubSubClient client(espClient);
+HardwareSerial JSN(2);
+LedControl display = LedControl(DISP_DIN, DISP_CLK, DISP_CS, 1);
 
-// ================= FUNCIONES =================
-void enableSensor(uint8_t pin) {
-  digitalWrite(JSN1_EN, LOW);
-  digitalWrite(JSN2_EN, LOW);
-  digitalWrite(JSN3_EN, LOW);
-  digitalWrite(pin, HIGH);
-  delay(80);
-}
+/* ================= ESTRUCTURAS ================= */
 
-uint16_t leerDistancia() {
-  jsn.flush();
-  jsn.write(0x55);
+struct Tank {
+  uint16_t distancia;
+  uint16_t litros;
+  bool low;
+  bool full;
+  bool overflow;
+  bool pumpOn;
+};
+
+Tank tanks[3];
+
+uint8_t selectedTank = 0;
+bool sirenActive = false;
+
+/* ================= CONSTANTES ================= */
+
+#define CMD_JSN 0x55
+#define LOW_CM  80
+#define FULL_CM 15
+#define OVER_CM 5
+
+/* ================= FUNCIONES ================= */
+
+uint16_t leerJSN() {
+  uint8_t cmd = CMD_JSN;
+  JSN.write(cmd);
   delay(60);
 
-  if (jsn.available() >= 4) {
-    uint8_t b[4];
-    jsn.readBytes(b, 4);
-    if (b[0] == 0xFF) {
-      uint8_t chk = (b[0] + b[1] + b[2]) & 0xFF;
-      if (chk == b[3]) {
-        return (b[1] << 8) | b[2];
-      }
-    }
+  if (JSN.available() >= 2) {
+    uint8_t hi = JSN.read();
+    uint8_t lo = JSN.read();
+    return (hi << 8) | lo;
   }
   return 0;
 }
 
-uint16_t mmToLitros(uint16_t mm) {
-  if (mm > 4000) mm = 4000;
-  if (mm < 800)  mm = 800;
-  return map(mm, 4000, 800, 0, 5000);
+uint16_t cmToLitros(uint16_t cm) {
+  if (cm == 0 || cm > 300) return 0;
+  return map(cm, 300, 0, 0, 5000);
 }
 
-void mostrarTanque(uint8_t t) {
-  lc.clearDisplay(0);
-
-  // Formato: "T-1 5685"
-  lc.setChar(0, 7, 'T', false);
-  lc.setChar(0, 6, '-', false);
-  lc.setDigit(0, 5, t + 1, false);
-  lc.setChar(0, 4, ' ', false);
-
-  int v = litros[t];
-  lc.setDigit(0, 3, (v / 1000) % 10, false);
-  lc.setDigit(0, 2, (v / 100)  % 10, false);
-  lc.setDigit(0, 1, (v / 10)   % 10, false);
-  lc.setDigit(0, 0, v % 10, false);
+void evaluarTanque(uint8_t i) {
+  tanks[i].low = tanks[i].distancia > LOW_CM;
+  tanks[i].full = tanks[i].distancia < FULL_CM;
+  tanks[i].overflow = tanks[i].distancia < OVER_CM;
 }
 
-// ================= SETUP =================
+void controlarBombas() {
+  for (int i = 0; i < 3; i++) {
+    if (tanks[i].overflow) {
+      tanks[i].pumpOn = false;
+      sirenActive = true;
+    } else if (tanks[i].low) {
+      tanks[i].pumpOn = true;
+    } else if (tanks[i].full) {
+      tanks[i].pumpOn = false;
+    }
+  }
+
+  digitalWrite(RELAY_T1, tanks[0].pumpOn);
+  digitalWrite(RELAY_T2, tanks[1].pumpOn);
+  digitalWrite(RELAY_T3, tanks[2].pumpOn);
+  digitalWrite(RELAY_SIREN, sirenActive);
+}
+
+void actualizarDisplay() {
+  display.clearDisplay(0);
+  Tank& t = tanks[selectedTank];
+
+  if (t.overflow) {
+    display.setChar(0, 7, 'O', false);
+    display.setChar(0, 6, 'V', false);
+    display.setChar(0, 5, 'R', false);
+  } else if (t.low) {
+    display.setChar(0, 7, 'L', false);
+    display.setChar(0, 6, 'O', false);
+    display.setChar(0, 5, 'W', false);
+  } else if (t.full) {
+    display.setChar(0, 7, 'F', false);
+    display.setChar(0, 6, 'U', false);
+    display.setChar(0, 5, 'L', false);
+    display.setChar(0, 4, 'L', false);
+  } else {
+    uint16_t l = t.litros;
+    for (int i = 0; i < 4; i++) {
+      display.setDigit(0, i, l % 10, false);
+      l /= 10;
+    }
+  }
+}
+
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  if (String(topic) == "esp32/ack") {
+    sirenActive = false;
+  }
+}
+
+void reconnectMQTT() {
+  while (!client.connected()) {
+    if (client.connect("ESP32_TANQUES", mqtt_user, mqtt_pass)) {
+      client.subscribe("esp32/ack");
+    } else {
+      delay(5000);
+    }
+  }
+}
+
+/* ================= SETUP ================= */
+
 void setup() {
   Serial.begin(115200);
 
-  jsn.begin(9600, SERIAL_8N1, JSN_RX, JSN_TX);
+  pinMode(RELAY_T1, OUTPUT);
+  pinMode(RELAY_T2, OUTPUT);
+  pinMode(RELAY_T3, OUTPUT);
+  pinMode(RELAY_SIREN, OUTPUT);
 
-  pinMode(JSN1_EN, OUTPUT);
-  pinMode(JSN2_EN, OUTPUT);
-  pinMode(JSN3_EN, OUTPUT);
+  pinMode(BTN_T1, INPUT_PULLUP);
+  pinMode(BTN_T2, INPUT_PULLUP);
+  pinMode(BTN_T3, INPUT_PULLUP);
 
-  pinMode(BTN1, INPUT_PULLUP);
-  pinMode(BTN2, INPUT_PULLUP);
-  pinMode(BTN3, INPUT_PULLUP);
+  JSN.begin(9600, SERIAL_8N1, JSN_RX, JSN_TX);
 
-  lc.shutdown(0, false);
-  lc.setIntensity(0, 8);
-  lc.clearDisplay(0);
+  display.shutdown(0, false);
+  display.setIntensity(0, 8);
+  display.clearDisplay(0);
 
-  Serial.println("Sistema iniciado");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) delay(500);
+
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(mqttCallback);
+
+  ArduinoOTA.begin();
 }
 
-// ================= LOOP =================
+/* ================= LOOP ================= */
+
 void loop() {
-  // ---- Lectura sensores ----
-  enableSensor(JSN1_EN);
-  distancia[0] = leerDistancia();
-
-  enableSensor(JSN2_EN);
-  distancia[1] = leerDistancia();
-
-  enableSensor(JSN3_EN);
-  distancia[2] = leerDistancia();
+  ArduinoOTA.handle();
+  if (!client.connected()) reconnectMQTT();
+  client.loop();
 
   for (int i = 0; i < 3; i++) {
-    litros[i] = mmToLitros(distancia[i]);
+    tanks[i].distancia = leerJSN();
+    tanks[i].litros = cmToLitros(tanks[i].distancia);
+    evaluarTanque(i);
+    delay(100);
   }
 
-  // ---- Botones ----
-  if (!digitalRead(BTN1)) tanqueSeleccionado = 0;
-  if (!digitalRead(BTN2)) tanqueSeleccionado = 1;
-  if (!digitalRead(BTN3)) tanqueSeleccionado = 2;
+  if (!digitalRead(BTN_T1)) selectedTank = 0;
+  if (!digitalRead(BTN_T2)) selectedTank = 1;
+  if (!digitalRead(BTN_T3)) selectedTank = 2;
 
-  mostrarTanque(tanqueSeleccionado);
+  controlarBombas();
+  actualizarDisplay();
 
-  delay(300);
+  delay(500);
 }
