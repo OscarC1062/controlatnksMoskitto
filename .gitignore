@@ -1,0 +1,22 @@
+# Obsidian
+.obsidian/workspace.json
+.obsidian/graph.json
+.obsidian/appearance.json
+.trash/
+
+# Python (Streamlit y entorno virtual)
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Sistema y Temporales
+.DS_Store
+Thumbs.db
+*.tmp
+*.log
+
+# Arduino / Binarios
+build/
+libraries/
