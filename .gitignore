@@ -19,4 +19,12 @@ Thumbs.db
 
 # Arduino / Binarios
 build/
-libraries/
+bin/
+layout/
+*.local.txt
+*.pyc
+
+# Configuraciones sensibles de Mosquitto (si usas contraseñas)
+*.password
+*.log
+
