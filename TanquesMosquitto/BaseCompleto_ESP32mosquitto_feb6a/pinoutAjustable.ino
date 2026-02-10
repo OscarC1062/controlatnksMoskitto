@@ -10,9 +10,9 @@
 #define RELAY_SIREN 12
 
 // Botones
-#define BTN_T1 32
-#define BTN_T2 33
-#define BTN_T3 25
+#define BTN_T1 34
+#define BTN_T2 35
+#define BTN_T3 39
 
 // MAX7219
 #define DISP_DIN 23
