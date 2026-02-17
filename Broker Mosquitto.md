@@ -1,146 +1,164 @@
-- Montar un **broker Mosquitto**
-- Conectar tu **ESP32 por MQTT**
-- Ver mensajes en **Node-RED**
-- Hacer un **ejemplo práctico real**
+# 🧭 PARTE 1 — Habilitar Mosquitto (Broker MQTT)
 
+## ✅ Paso 1 — Instalar Mosquitto
 
-ESP32  ──►  Mosquitto (broker)  ◄──  PC / Node-RED / otro ESP32
+### 🔹 En Windows
 
-1️⃣ Habilitar el broker MQTT (Mosquitto)
-
-sudo apt update
-sudo apt install mosquitto mosquitto-clients
-
-### Verificar que corre
-
-`sudo systemctl status mosquitto`
-
-Debe decir: **active (running)** ✔️
-
-## 2️⃣ Permitir conexiones (modo simple – laboratorio)
-
-Edita:
-
-`sudo nano /etc/mosquitto/mosquitto.conf`
-
-Agrega **al final**:
-
-`listener 1883 allow_anonymous true`
-
-Reinicia:
-
-`sudo systemctl restart mosquitto`
-
-## 3️⃣ Ver mensajes desde un dispositivo (PC)
-
-### Suscribirse a un topic
-
-`mosquitto_sub -h localhost -t "esp32/#" -v`
-
-Eso deja al dispositivo **escuchando todo** lo que envíe el ESP32.
-
-Ejemplo:
-
-`esp32/temperatura 24.6 esp32/estado ON`
-
-## 4️⃣ Publicar desde el ESP32
-
-Ejemplo mínimo en el ESP32:
-
-#include <WiFi.h>
-#include <PubSubClient.h>
-
-const char* ssid = "TU_WIFI";
-const char* password = "CLAVE";
-
-const char* mqtt_server = "192.168.1.10"; // IP del broker
-
-WiFiClient espClient;
-PubSubClient client(espClient);
-
-void setup() {
-  Serial.begin(115200);
-
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-  }
-
-  client.setServer(mqtt_server, 1883);
-
-  while (!client.connected()) {
-    client.connect("ESP32_1");
-    delay(500);
-  }
-
-  client.publish("esp32/estado", "conectado");
-}
-
-void loop() {
-  client.loop();
-}
-
----
-
-## 5️⃣ “Habilitar” un dispositivo (qué significa realmente)
-
-Un dispositivo **queda habilitado** cuando:
-
-1. ✔️ Puede conectarse al broker
-2. ✔️ Tiene permiso (anon o usuario)
-3. ✔️ Se suscribe a un topic válido
+1. Descargar desde el sitio oficial de Eclipse Mosquitto
     
-**No hay registro previo obligatorio**, solo:
+2. Instalar con opciones por defecto
+    
+3. Activar como servicio
+    
 
-- credenciales correctas
-- topic permitido
+### 🔹 En Linux (Ubuntu/Debian)
+
+`sudo apt update sudo apt install mosquitto mosquitto-clients`
 
 ---
 
-## 6️⃣ Habilitación **con usuario y contraseña** (recomendado)
+## ✅ Paso 2 — Verificar que esté corriendo
 
-### Crear usuario MQTT
+En consola:
+
+`mosquitto -v`
+
+Si ves:
+
+`Opening ipv4 listen socket on port 1883`
+
+✔ El broker está activo.
+
+---
+
+## ✅ Paso 3 — Habilitar usuario y contraseña (recomendado)
+
+Crear archivo de usuarios:
 
 `sudo mosquitto_passwd -c /etc/mosquitto/passwd esp32`
 
-### Configurar Mosquitto
+Te pedirá contraseña.
+
+Editar archivo config:
+
+`sudo nano /etc/mosquitto/mosquitto.conf`
+
+Agregar:
 
 `allow_anonymous false password_file /etc/mosquitto/passwd listener 1883`
 
-Reinicia:
+Reiniciar:
 
 `sudo systemctl restart mosquitto`
 
-### Conectarse desde PC
+---
 
-`mosquitto_sub -h localhost -u esp32 -P CLAVE -t "esp32/#"`
+# 🧭 PARTE 2 — Probar MQTT desde PC
+
+Antes de usar el ESP32, probamos el broker.
+
+### Terminal 1 (Suscriptor)
+
+`mosquitto_sub -h 192.168.1.10 -t esp32/# -u esp32 -P TU_CLAVE -v`
+
+### Terminal 2 (Publicador)
+
+`mosquitto_pub -h 192.168.1.10 -t esp32/test -m "Hola Mundo" -u esp32 -P TU_CLAVE`
+
+Si en la Terminal 1 aparece el mensaje ✔  
+Tu broker está funcionando.
 
 ---
 
-## 7️⃣ Suscribirse desde otro ESP32
+# 🧭 PARTE 3 — Configurar el ESP32
 
-Cambia el código:
+En el sketch modificar:
 
-`client.subscribe("esp32/#");`
+`const char* ssid = "TU_WIFI"; const char* password = "TU_CLAVE_WIFI";  const char* mqtt_server = "192.168.1.10"; const char* mqtt_user = "esp32"; const char* mqtt_pass = "TU_CLAVE";`
 
-Y define un callback:
+⚠ Importante:
 
-void callback(char* topic, byte* payload, unsigned int length) {
-  Serial.print(topic);
-  Serial.print(" -> ");
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)payload[i]);
-  }
-  Serial.println();
-}
+- La IP debe ser la del equipo donde corre Mosquitto
+    
+- ESP32 y broker deben estar en la misma red
+    
 
 ---
 
-## 🧠 Resumen mental rápido
+# 🧭 PARTE 4 — Verificar conexión del ESP32
 
-- **Broker**: autoriza conexiones
-- **Topic**: define qué ves
-- **Subscriber**: “ve” mensajes
-- **Publisher**: los envía
-- No hay “registro”, solo permisos
+Cuando el ESP32 arranca:
 
+1. Se conecta a WiFi
+    
+2. Ejecuta `client.connect(...)`
+    
+3. Se suscribe a:
+    
+
+`esp32/ack`
+
+---
+
+## 🧪 Prueba real con tu sistema
+
+### En PC:
+
+`mosquitto_pub -h 192.168.1.10 -t esp32/ack -m "reset" -u esp32 -P TU_CLAVE`
+
+📌 Resultado esperado:
+
+- La sirena se apaga
+    
+- El ESP32 recibe el mensaje
+    
+
+---
+
+# 🧭 PARTE 5 — Ver mensajes del ESP32
+
+Si agregás publicación en el loop (ejemplo):
+
+`client.publish("esp32/t1", String(tanks[0].litros).c_str());`
+
+Podés monitorear con:
+
+`mosquitto_sub -h 192.168.1.10 -t esp32/# -u esp32 -P TU_CLAVE -v`
+
+Y verás:
+
+`esp32/t1 3450`
+
+---
+
+# 🛠 Checklist Rápido de Diagnóstico
+
+|Problema|Causa probable|
+|---|---|
+|No conecta WiFi|SSID o clave mal|
+|No conecta MQTT|IP incorrecta|
+|Timeout MQTT|Firewall bloqueando 1883|
+|Se conecta pero no recibe|No está suscripto|
+
+---
+
+# 🎯 Flujo Final Esperado
+
+`ESP32 → WiFi → Mosquitto → Suscriptores PC/App → Mosquitto → ESP32`
+
+---
+
+Si querés, el próximo paso puede ser:
+
+- 📊 Integrarlo con Node-RED
+    
+- 📱 Integrarlo con app móvil
+    
+- 📈 Guardar históricos
+    
+- 🔐 Activar MQTT sobre TLS (seguridad industrial)
+    
+
+Cuando lo pruebes, contame:
+
+> ¿Conecta a la primera o te pelea la red? 😄
