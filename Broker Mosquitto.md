@@ -1,3 +1,28 @@
+
+### Iniciar mosquitto
+
+** CLAVE tonino *******
+*----------REINICIAR
+sudo systemctl restart mosquitto
+sudo systemctl reload mosquitto (SIN REBOOT)
+
+*----------VERIFICAR
+sudo systemctl status mosquitto
+
+*----------LOGS
+journalctl -xeu mosquitto.service
+journalctl -u mosquitto -f
+
+*----------DETENER
+sudo systemctl stop mosquitto
+
+*----------TERMINAL DE MENSAJES
+mosquitto_sub -h localhost -u esp32 -P TU_CLAVE_MQTT -t "#" -v
+
+*----------MENSAJES
+mosquitto_pub -h localhost -u esp32 -P TU_CLAVE_MQTT -t test/mosquitto -m "OK"
+
+
 # 🧭 PARTE 1 — Habilitar Mosquitto (Broker MQTT)
 
 ## ✅ Paso 1 — Instalar Mosquitto
