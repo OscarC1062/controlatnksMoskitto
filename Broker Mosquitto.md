@@ -1,4 +1,4 @@
-### Iniciar mosquitto
+### Iniciar MQTT
 
 ** CLAVE tonino *******
 *----------REINICIAR
